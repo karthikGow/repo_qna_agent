@@ -1,4 +1,5 @@
 # GitHub Repo Q&A Agent (FastAPI + PydanticAI + optional LangChain RAG)
+"Fix: favicon bug"
 
 Answers repo questions like:
 - “What was implemented in the last commit and by whom?”
