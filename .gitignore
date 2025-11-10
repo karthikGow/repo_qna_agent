@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+rag_store/
+*.sqlite
+*.db
+.env
+.env.*
+.vscode/
