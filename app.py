@@ -1,6 +1,6 @@
 """
 FastAPI entrypoint: defines the API, health route, and chat endpoint.
-All agent logic and GitHub tools live in agent_setup.py to keep this file slim.
+All agent logic and GitHub tools live in the `agent/` package to keep this file slim.
 """
 import os
 from typing import Optional
