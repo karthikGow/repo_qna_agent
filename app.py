@@ -10,18 +10,14 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from zoneinfo import ZoneInfo
 
-# Optional: RAG tool import (present if you add rag.py)
-try:
-    from rag import rag_find_commits  # type: ignore
-except Exception:
-    rag_find_commits = None  # RAG is optional
+from dotenv import load_dotenv
+load_dotenv()
 
 GITHUB_API = "https://api.github.com"
 DEFAULT_TZ = os.getenv("AGENT_TZ", "Europe/Berlin")
 MODEL_NAME = os.getenv("PYDANTIC_AI_MODEL", "openai:gpt-4o-mini")
 
 # ---------- Utilities ----------
-
 def _headers(token: Optional[str]) -> Dict[str, str]:
     h = {
         "Accept": "application/vnd.github+json, application/vnd.github.text-match+json",
@@ -32,19 +28,40 @@ def _headers(token: Optional[str]) -> Dict[str, str]:
     return h
 
 def iso(dt: datetime) -> str:
+    """ISO string without microseconds; UTC uses trailing Z."""
     return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
-def to_local_iso(ts: str, tz_name: str) -> str:
-    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+def utc_local_pair(ts_utc: str, tz_name: str) -> Dict[str, str]:
+    """
+    Take an ISO8601 UTC string from GitHub and return UTC + local (AGENT_TZ).
+    """
+    dt = datetime.fromisoformat(ts_utc.replace("Z", "+00:00"))
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    local = dt.astimezone(ZoneInfo(tz_name))
-    return iso(local)
+    utc_iso = iso(dt.astimezone(timezone.utc))  # ends with 'Z'
+    local_iso = dt.astimezone(ZoneInfo(tz_name)).isoformat()
+    return {"utc": utc_iso, "local": f"{local_iso} ({tz_name})"}
 
 async def _json_or_error(resp: httpx.Response) -> Any:
     if resp.status_code >= 400:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    return resp.json()
+        detail_text = None
+        try:
+            j = resp.json()
+            detail_text = j.get("message") or resp.text
+        except Exception:
+            detail_text = resp.text
+        rl = resp.headers.get("X-RateLimit-Remaining")
+        msg_lower = (detail_text or "").lower()
+        if resp.status_code in (403, 429) and (rl == "0" or "rate limit" in msg_lower):
+            raise HTTPException(
+                status_code=429,
+                detail="GitHub API rate limit exceeded. Provide GITHUB_TOKEN or retry later.",
+            )
+        raise HTTPException(status_code=resp.status_code, detail=detail_text or "GitHub request failed")
+    try:
+        return resp.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="Invalid JSON from GitHub")
 
 # ---------- Agent output ----------
 class RepoAnswer(BaseModel):
@@ -67,9 +84,11 @@ agent = Agent(
         """
 You are a precise GitHub repo Q&A assistant. You MUST:
 - Use the provided tools to fetch data from GitHub. Never guess.
-- Always cite exact sources (commit URL, workflow run URL, deployments page).
-- Always include clear timestamps in BOTH UTC and the local timezone provided by deps.tz.
-- If nothing is found, say "I cannot verify this." and offer the closest match with its citation.
+- Always cite exact sources (commit URL, workflow run URL, PR URL) in `citations`.
+- Always include clear timestamps in BOTH UTC and the local timezone from deps.tz.
+- When a tool returns fields like `committed.utc/local` or `when_pair.utc/local`, USE THEM directly.
+- If the request or the user mentions an environment (e.g., prod/staging), pass it to last_deployment(environment=...).
+- For “fix/refactor” questions, first try find_commit; if not found, try find_pr_merge; if nothing is found, say: "I cannot verify this." and offer the closest match with its citation.
 - Keep answers concise and terminal-friendly.
         """
     ),
@@ -109,6 +128,7 @@ async def last_commit(
             "author_name": author_name,
             "author_login": author_login,
             "committed_date": committed_date,
+            "committed": utc_local_pair(committed_date, ctx.deps.tz),
             "html_url": html_url,
             "branch": branch,
         }
@@ -144,6 +164,7 @@ async def find_commit(
                     "author_name": author_name,
                     "author_login": author_login,
                     "committed_date": committed_date,
+                    "committed": utc_local_pair(committed_date, ctx.deps.tz),
                     "html_url": html_url,
                     "match_source": "search",
                 }
@@ -153,7 +174,10 @@ async def find_commit(
             params={"per_page": 50},
             headers=_headers(ctx.deps.github_token),
         )
-        data = await _json_or_error(r2)
+        if r2.status_code >= 400:
+            # Gracefully give up; agent will try another tool or respond accordingly
+            return {}
+        data = r2.json()
         kw = [k.strip().lower() for k in re.split(r"\s+", query) if k.strip()]
         for c in data:
             msg = (c.get("commit", {}).get("message") or "").lower()
@@ -170,14 +194,74 @@ async def find_commit(
                     "author_name": author_name,
                     "author_login": author_login,
                     "committed_date": committed_date,
+                    "committed": utc_local_pair(committed_date, ctx.deps.tz),
                     "html_url": html_url,
                     "match_source": "list-scan",
                 }
         return {}
 
+# Find merged PRs for “fix/refactor” style questions
+@agent.tool
+async def find_pr_merge(
+    ctx: RunContext[Deps], *, owner: str, repo: str, query: str
+) -> Dict[str, Any]:
+    """Find the most relevant merged PR matching a query and return merge details."""
+    async with httpx.AsyncClient(timeout=25) as client:
+        q = f"repo:{owner}/{repo} is:pr is:merged {query}"
+        r = await client.get(
+            f"{GITHUB_API}/search/issues",
+            params={"q": q, "sort": "updated", "order": "desc", "per_page": 1},
+            headers=_headers(ctx.deps.github_token),
+        )
+        if r.status_code >= 400:
+            return {}
+        js = r.json()
+        items = js.get("items", [])
+        if not items:
+            return {}
+        it = items[0]
+        number = it.get("number")
+        if not number:
+            return {}
+        pr_url = f"https://github.com/{owner}/{repo}/pull/{number}"
+        # Fetch full PR details to get merged_at and merge_commit_sha
+        r2 = await client.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{number}",
+            headers=_headers(ctx.deps.github_token),
+        )
+        if r2.status_code >= 400:
+            # Fall back to data from search result only
+            when = it.get("closed_at") or it.get("updated_at") or it.get("created_at")
+            return {
+                "number": number,
+                "title": it.get("title"),
+                "author_login": (it.get("user") or {}).get("login"),
+                "when": when,
+                "when_pair": utc_local_pair(when, ctx.deps.tz) if when else None,
+                "html_url": pr_url,
+            }
+        pr = r2.json()
+        merged_at = pr.get("merged_at")
+        merge_commit_sha = pr.get("merge_commit_sha")
+        user = pr.get("user") or {}
+        when = merged_at or it.get("closed_at") or it.get("updated_at") or it.get("created_at")
+        out: Dict[str, Any] = {
+            "number": number,
+            "title": pr.get("title") or it.get("title"),
+            "author_login": user.get("login") or (it.get("user") or {}).get("login"),
+            "merged_at": merged_at,
+            "when": when,
+            "when_pair": utc_local_pair(when, ctx.deps.tz) if when else None,
+            "html_url": pr_url,
+        }
+        if merge_commit_sha:
+            out["merge_commit_sha"] = merge_commit_sha
+            out["merge_commit_url"] = f"https://github.com/{owner}/{repo}/commit/{merge_commit_sha}"
+        return out
+
 _DEPLOY_KEYWORDS = [
     "deploy", "release", "publish", "vercel", "netlify", "render", "fly",
-    "railway", "cloud run", "cloudrun", "prod", "production",
+    "railway", "cloud run", "cloudrun", "prod", "production", "pages-build-deployment",
 ]
 
 @agent.tool
@@ -188,7 +272,7 @@ async def last_deployment(
     token = ctx.deps.github_token
     async with httpx.AsyncClient(timeout=25) as client:
         # (1) Deployments API
-        params = {"per_page": 1}
+        params: Dict[str, Any] = {"per_page": 1}
         if environment:
             params["environment"] = environment
         r = await client.get(
@@ -204,6 +288,7 @@ async def last_deployment(
                 statuses_url = dep.get("statuses_url")
                 target_url = None
                 state = None
+                when = created_at
                 if statuses_url:
                     rs = await client.get(statuses_url, headers=_headers(token))
                     if rs.status_code == 200:
@@ -212,8 +297,10 @@ async def last_deployment(
                             s = sts[0]
                             state = s.get("state")
                             target_url = s.get("target_url") or s.get("log_url")
+                            when = s.get("updated_at") or s.get("created_at") or created_at
                 return {
-                    "when": created_at,
+                    "when": when,
+                    "when_pair": utc_local_pair(when, ctx.deps.tz) if when else None,
                     "html_url": target_url or f"https://github.com/{owner}/{repo}/deployments",
                     "source": "deployments",
                     "environment": dep.get("environment"),
@@ -225,17 +312,22 @@ async def last_deployment(
             params={"status": "success", "per_page": 50},
             headers=_headers(token),
         )
-        data = await _json_or_error(r2)
+        if r2.status_code >= 400:
+            return {}
+        data = r2.json()
         runs = data.get("workflow_runs", [])
+
         def looks_like_deploy(name: str) -> bool:
             n = (name or "").lower()
             return any(k in n for k in _DEPLOY_KEYWORDS)
+
         for run in runs:
             name = run.get("name") or run.get("display_title") or ""
             if looks_like_deploy(name):
                 when = run.get("updated_at") or run.get("run_started_at") or run.get("created_at")
                 return {
                     "when": when,
+                    "when_pair": utc_local_pair(when, ctx.deps.tz),
                     "html_url": run.get("html_url"),
                     "source": "actions",
                     "workflow_name": name,
@@ -244,6 +336,11 @@ async def last_deployment(
         return {}
 
 # ---------- Optional RAG Tool ----------
+try:
+    from rag import rag_find_commits  # type: ignore
+except Exception:
+    rag_find_commits = None
+
 if rag_find_commits is not None:
     @agent.tool
     async def rag_find_change(
@@ -257,7 +354,11 @@ if rag_find_commits is not None:
         return best
 
 # ---------- FastAPI app ----------
-app = FastAPI(title="Repo Q&A Agent", version="1.0.0")
+app = FastAPI(title="Repo Q&A Agent", version="1.1.0")
+
+@app.get("/health")
+async def health() -> Dict[str, Any]:
+    return {"ok": True}
 
 class ChatRequest(BaseModel):
     repo: str = Field(..., description="owner/repo")
@@ -268,6 +369,7 @@ class ChatRequest(BaseModel):
 @app.post("/chat", response_model=RepoAnswer)
 async def chat(req: ChatRequest) -> RepoAnswer:
     token = os.getenv("GITHUB_TOKEN")
+    tz = os.getenv("AGENT_TZ", DEFAULT_TZ)
     if "/" not in req.repo:
         raise HTTPException(400, "repo must be in 'owner/repo' format")
     owner, repo = req.repo.split("/", 1)
@@ -279,5 +381,12 @@ async def chat(req: ChatRequest) -> RepoAnswer:
         f"Question: {req.question}"
     )
 
-    result = await agent.run(prompt, deps=Deps(github_token=token))
-    return result.output
+    try:
+        result = await agent.run(prompt, deps=Deps(github_token=token, tz=tz))
+        return result.output
+    except HTTPException:
+        # Bubble HTTPExceptions as-is
+        raise
+    except Exception as e:
+        # Avoid 500s caused by tool failures; surface a readable error
+        raise HTTPException(502, f"Agent error: {e}")

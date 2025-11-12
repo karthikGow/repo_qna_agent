@@ -7,3 +7,4 @@ rag_store/
 .env
 .env.*
 .vscode/
+env.ps1
