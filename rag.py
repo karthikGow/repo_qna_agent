@@ -1,3 +1,9 @@
+"""RAG retrieval helper for commit history (optional).
+
+Loads a pre-built Chroma collection and verifies retrieved commits via GitHub.
+Used by agent.tools_rag if available.
+"""
+
 import os
 from typing import List, Dict, Any
 import httpx

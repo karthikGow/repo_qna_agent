@@ -1,3 +1,9 @@
+"""Tiny CLI client for the Repo Q&A Agent.
+
+Posts questions to the FastAPI server and prints the answer with timestamps
+and citations. Supports interactive mode if no question is provided.
+"""
+
 from typing import Optional
 import typer
 import httpx
