@@ -7,14 +7,16 @@ import httpx
 from .core import agent
 from .config import GITHUB_API
 from .utils import _headers, _json_or_error, utc_local_pair
+from .models import Deps
+from pydantic_ai import RunContext
 
 
 @agent.tool
 async def last_file_change(
-    ctx: "Deps", *, owner: str, repo: str, path: str, branch: Optional[str] = None
+    ctx: RunContext[Deps], *, owner: str, repo: str, path: str, branch: Optional[str] = None
 ) -> Dict[str, Any]:
     """Return the most recent commit that modified the given file path."""
-    token = ctx.github_token
+    token = ctx.deps.github_token
     async with httpx.AsyncClient(timeout=20) as client:
         try:
             if not branch:
@@ -46,7 +48,7 @@ async def last_file_change(
                 "author_name": author_name,
                 "author_login": author_login,
                 "committed_date": committed_date,
-                "committed": utc_local_pair(committed_date, ctx.tz) if committed_date else None,
+                "committed": utc_local_pair(committed_date, ctx.deps.tz) if committed_date else None,
                 "html_url": html_url,
                 "path": path,
                 "branch": branch,
@@ -57,10 +59,10 @@ async def last_file_change(
 
 @agent.tool
 async def introduced_line(
-    ctx: "Deps", *, owner: str, repo: str, path: str, pattern: str, branch: Optional[str] = None, max_commits: int = 200
+    ctx: RunContext[Deps], *, owner: str, repo: str, path: str, pattern: str, branch: Optional[str] = None, max_commits: int = 200
 ) -> Dict[str, Any]:
     """Find the earliest commit (within a recent window) that introduced a line containing `pattern` in `path`."""
-    token = ctx.github_token
+    token = ctx.deps.github_token
     async with httpx.AsyncClient(timeout=25) as client:
         try:
             if not branch:
@@ -125,7 +127,7 @@ async def introduced_line(
                         "author_name": author_name,
                         "author_login": author_login,
                         "committed_date": committed_date,
-                        "committed": utc_local_pair(committed_date, ctx.tz) if committed_date else None,
+                        "committed": utc_local_pair(committed_date, ctx.deps.tz) if committed_date else None,
                         "html_url": html_url,
                         "path": path,
                         "pattern": pattern,

@@ -7,6 +7,8 @@ import httpx
 from .core import agent
 from .config import GITHUB_API
 from .utils import _headers, _json_or_error, utc_local_pair
+from .models import Deps
+from pydantic_ai import RunContext
 
 _DEPLOY_KEYWORDS = [
     "deploy",
@@ -27,10 +29,10 @@ _DEPLOY_KEYWORDS = [
 
 @agent.tool
 async def last_deployment(
-    ctx: "Deps", *, owner: str, repo: str, environment: Optional[str] = None
+    ctx: RunContext[Deps], *, owner: str, repo: str, environment: Optional[str] = None
 ) -> Dict[str, Any]:
     """Find the last deployment via Deployments API or Actions fallback."""
-    token = ctx.github_token
+    token = ctx.deps.github_token
     async with httpx.AsyncClient(timeout=25) as client:
         params: Dict[str, Any] = {"per_page": 1}
         if environment:
@@ -60,7 +62,7 @@ async def last_deployment(
                             when = s.get("updated_at") or s.get("created_at") or created_at
                 return {
                     "when": when,
-                    "when_pair": utc_local_pair(when, ctx.tz) if when else None,
+                    "when_pair": utc_local_pair(when, ctx.deps.tz) if when else None,
                     "html_url": target_url or f"https://github.com/{owner}/{repo}/deployments",
                     "source": "deployments",
                     "environment": dep.get("environment"),
@@ -86,7 +88,7 @@ async def last_deployment(
                 when = run.get("updated_at") or run.get("run_started_at") or run.get("created_at")
                 return {
                     "when": when,
-                    "when_pair": utc_local_pair(when, ctx.tz) if when else None,
+                    "when_pair": utc_local_pair(when, ctx.deps.tz) if when else None,
                     "html_url": run.get("html_url"),
                     "source": "actions",
                     "workflow_name": name,

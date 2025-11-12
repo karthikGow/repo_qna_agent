@@ -3,6 +3,8 @@
 from typing import Any, Dict
 
 from .core import agent
+from .models import Deps
+from pydantic_ai import RunContext
 
 try:
     from rag import rag_find_commits  # type: ignore
@@ -13,7 +15,7 @@ except Exception:
 if rag_find_commits is not None:
     @agent.tool
     async def rag_find_change(
-        ctx, *, owner: str, repo: str, query: str, k: int = 4
+        ctx: RunContext[Deps], *, owner: str, repo: str, query: str, k: int = 4
     ) -> Dict[str, Any]:
         results = rag_find_commits(owner, repo, query=query, k=k)  # type: ignore
         if not results:

@@ -7,11 +7,13 @@ import httpx
 from .core import agent
 from .config import GITHUB_API
 from .utils import _headers, utc_local_pair
+from .models import Deps
+from pydantic_ai import RunContext
 
 
 @agent.tool
 async def find_pr_merge(
-    ctx: "Deps", *, owner: str, repo: str, query: str
+    ctx: RunContext[Deps], *, owner: str, repo: str, query: str
 ) -> Dict[str, Any]:
     """Find a merged PR matching a query and return merge details."""
     async with httpx.AsyncClient(timeout=25) as client:
@@ -19,7 +21,7 @@ async def find_pr_merge(
         r = await client.get(
             f"{GITHUB_API}/search/issues",
             params={"q": q, "sort": "updated", "order": "desc", "per_page": 1},
-            headers=_headers(ctx.github_token),
+            headers=_headers(ctx.deps.github_token),
         )
         if r.status_code >= 400:
             return {}
@@ -34,7 +36,7 @@ async def find_pr_merge(
         pr_url = f"https://github.com/{owner}/{repo}/pull/{number}"
         r2 = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{number}",
-            headers=_headers(ctx.github_token),
+            headers=_headers(ctx.deps.github_token),
         )
         if r2.status_code >= 400:
             when = it.get("closed_at") or it.get("updated_at") or it.get("created_at")
@@ -43,7 +45,7 @@ async def find_pr_merge(
                 "title": it.get("title"),
                 "author_login": (it.get("user") or {}).get("login"),
                 "when": when,
-                "when_pair": utc_local_pair(when, ctx.tz) if when else None,
+                "when_pair": utc_local_pair(when, ctx.deps.tz) if when else None,
                 "html_url": pr_url,
             }
         pr = r2.json()
@@ -57,7 +59,7 @@ async def find_pr_merge(
             "author_login": user.get("login") or (it.get("user") or {}).get("login"),
             "merged_at": merged_at,
             "when": when,
-            "when_pair": utc_local_pair(when, ctx.tz) if when else None,
+            "when_pair": utc_local_pair(when, ctx.deps.tz) if when else None,
             "html_url": pr_url,
         }
         if merge_commit_sha:

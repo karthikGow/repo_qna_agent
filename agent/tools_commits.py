@@ -9,22 +9,23 @@ from .core import agent
 from .config import GITHUB_API
 from .utils import _headers, _json_or_error, utc_local_pair
 from .models import Deps
+from pydantic_ai import RunContext
 
 
 @agent.tool
 async def last_commit(
-    ctx: "Deps", *, owner: str, repo: str, branch: Optional[str] = None
+    ctx: RunContext[Deps], *, owner: str, repo: str, branch: Optional[str] = None
 ) -> Dict[str, Any]:
     """Return info about the latest commit on a branch (default branch if not provided)."""
     async with httpx.AsyncClient(timeout=20) as client:
         if not branch:
-            r = await client.get(f"{GITHUB_API}/repos/{owner}/{repo}", headers=_headers(ctx.github_token))
+            r = await client.get(f"{GITHUB_API}/repos/{owner}/{repo}", headers=_headers(ctx.deps.github_token))
             repo_json = await _json_or_error(r)
             branch = repo_json.get("default_branch", "main")
         r = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/commits",
             params={"sha": branch, "per_page": 1},
-            headers=_headers(ctx.github_token),
+            headers=_headers(ctx.deps.github_token),
         )
         data = await _json_or_error(r)
         if not data:
@@ -43,7 +44,7 @@ async def last_commit(
             "author_name": author_name,
             "author_login": author_login,
             "committed_date": committed_date,
-            "committed": utc_local_pair(committed_date, ctx.tz),
+            "committed": utc_local_pair(committed_date, ctx.deps.tz),
             "html_url": html_url,
             "branch": branch,
         }
@@ -51,7 +52,7 @@ async def last_commit(
 
 @agent.tool
 async def find_commit(
-    ctx: "Deps", *, owner: str, repo: str, query: str
+    ctx: RunContext[Deps], *, owner: str, repo: str, query: str
 ) -> Dict[str, Any]:
     """Find the most recent commit whose message matches a keyword query."""
     async with httpx.AsyncClient(timeout=25) as client:
@@ -59,7 +60,7 @@ async def find_commit(
         r = await client.get(
             f"{GITHUB_API}/search/commits",
             params={"q": q, "sort": "committer-date", "order": "desc", "per_page": 1},
-            headers=_headers(ctx.github_token),
+            headers=_headers(ctx.deps.github_token),
         )
         if r.status_code == 200:
             js = r.json()
@@ -79,14 +80,14 @@ async def find_commit(
                     "author_name": author_name,
                     "author_login": author_login,
                     "committed_date": committed_date,
-                    "committed": utc_local_pair(committed_date, ctx.tz),
+                    "committed": utc_local_pair(committed_date, ctx.deps.tz),
                     "html_url": html_url,
                     "match_source": "search",
                 }
         r2 = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/commits",
             params={"per_page": 50},
-            headers=_headers(ctx.github_token),
+            headers=_headers(ctx.deps.github_token),
         )
         if r2.status_code >= 400:
             return {}
@@ -107,7 +108,7 @@ async def find_commit(
                     "author_name": author_name,
                     "author_login": author_login,
                     "committed_date": committed_date,
-                    "committed": utc_local_pair(committed_date, ctx.tz),
+                    "committed": utc_local_pair(committed_date, ctx.deps.tz),
                     "html_url": html_url,
                     "match_source": "list-scan",
                 }
