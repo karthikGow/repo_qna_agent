@@ -181,6 +181,5 @@ Homepage refactor: python cli.py --repo karthikGow/repo_qna_agent "When did we r
 ```powershell
 git config --global user.name "Your Name"
 git config --global user.email "<your-noreply-or-safe-email>"
-- Minor cleanup to support homepage layout refactor demo.
 ```
 
