@@ -1,6 +1,6 @@
 """Commit-related tools: latest commit and keyword-based commit search."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import re
 
 import httpx
@@ -10,6 +10,50 @@ from .config import GITHUB_API
 from .utils import _headers, _json_or_error, utc_local_pair
 from .models import Deps
 from pydantic_ai import RunContext
+
+
+# Very small stopword list to avoid matching on generic words like "when", "did", "we".
+_STOPWORDS = {
+    "when",
+    "did",
+    "do",
+    "does",
+    "we",
+    "you",
+    "the",
+    "a",
+    "an",
+    "is",
+    "was",
+    "were",
+    "to",
+    "for",
+    "in",
+    "on",
+    "of",
+    "and",
+    "or",
+}
+
+
+def _keywords_from_query(query: str) -> List[str]:
+    """Extract meaningful lowercase keywords from a natural-language query."""
+    raw = re.split(r"\s+", query)
+    out: List[str] = []
+    for k in raw:
+        k = k.strip().lower()
+        if not k:
+            continue
+        # Strip punctuation and non-alphanumerics.
+        k = re.sub(r"[^a-z0-9]+", "", k)
+        if not k:
+            continue
+        if k in _STOPWORDS:
+            continue
+        if len(k) < 3:
+            continue
+        out.append(k)
+    return out
 
 
 @agent.tool
@@ -56,6 +100,7 @@ async def find_commit(
 ) -> Dict[str, Any]:
     """Find the most recent commit whose message matches a keyword query."""
     async with httpx.AsyncClient(timeout=25) as client:
+        # Let GitHub search try with the raw query first.
         q = f"repo:{owner}/{repo} {query}"
         r = await client.get(
             f"{GITHUB_API}/search/commits",
@@ -92,7 +137,9 @@ async def find_commit(
         if r2.status_code >= 400:
             return {}
         data = r2.json()
-        kw = [k.strip().lower() for k in re.split(r"\s+", query) if k.strip()]
+        kw = _keywords_from_query(query)
+        if not kw:
+            return {}
         for c in data:
             msg = (c.get("commit", {}).get("message") or "").lower()
             if all(k in msg for k in kw):
