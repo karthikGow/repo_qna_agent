@@ -172,8 +172,10 @@ python cli.py --repo owner/repo "When did we fix the favicon bug?"
 python cli.py --repo owner/repo "When did we refactor the Homepage layout?"
 ```
 
+Homepage refactor: python cli.py --repo karthikGow/repo_qna_agent "When did we refactor the Homepage layout?"
 ### Git Identity (optional)
 ```powershell
 git config --global user.name "Your Name"
 git config --global user.email "<your-noreply-or-safe-email>"
-```
+- Minor cleanup to support homepage layout refactor demo.
+
