@@ -171,9 +171,15 @@ python cli.py --repo owner/repo --environment prod "When was the last deployment
 python cli.py --repo owner/repo "When did we fix the favicon bug?"
 python cli.py --repo owner/repo "When did we refactor the Homepage layout?"
 ```
-
+Start API: uvicorn app:app --reload --port 8000
+Health: curl http://127.0.0.1:8000/health
+Last commit: python cli.py --repo karthikGow/repo_qna_agent "What was implemented in the last commit and by whom?"
+Last deployment (prod): python cli.py --repo karthikGow/repo_qna_agent --environment prod "When was the last deployment?"
+Favicon fix: python cli.py --repo karthikGow/repo_qna_agent "When did we fix the favicon bug?"
+Homepage refactor: python cli.py --repo karthikGow/repo_qna_agent "When did we refactor the Homepage layout?"
 ### Git Identity (optional)
 ```powershell
 git config --global user.name "Your Name"
 git config --global user.email "<your-noreply-or-safe-email>"
 ```
+- Minor cleanup to support homepage layout refactor demo.
