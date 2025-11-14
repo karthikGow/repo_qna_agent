@@ -1,7 +1,8 @@
-"""Tiny CLI client for the Repo Q&A Agent.
+"""Client-side CLI for the Repo Q&A Agent.
 
-Posts questions to the FastAPI server and prints the answer with timestamps
-and citations. Supports interactive mode if no question is provided.
+- Sends questions to the FastAPI server's `/chat` endpoint.
+- Prints the agent's `RepoAnswer` (text, timestamps, citations) in the terminal.
+- Can be used in one-shot mode (single question) or interactive mode.
 """
 
 from typing import Optional

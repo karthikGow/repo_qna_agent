@@ -1,7 +1,9 @@
-"""RAG retrieval helper for commit history (optional).
+"""Server-side RAG retrieval helper for commit history (optional).
 
-Loads a pre-built Chroma collection and verifies retrieved commits via GitHub.
-Used by agent.tools_rag if available.
+- Loads a Chroma vector store that was built by `rag_index.py`.
+- Retrieves semantically relevant commit chunks and verifies each via GitHub
+  before returning metadata (sha, message, author, dates, URLs).
+- Called by `agent.tools_rag` when the RAG path is enabled.
 """
 
 import os
@@ -12,6 +14,13 @@ from langchain_community.vectorstores import Chroma
 GITHUB_API = "https://api.github.com"
 PERSIST_DIR = os.getenv("RAG_PERSIST_DIR", "rag_store")
 
+def _collection_name(owner: str, repo: str) -> str:
+    """Return a Chroma-safe collection name for this repo.
+
+    Chroma's name validation allows only [a-zA-Z0-9._-], so we avoid slashes.
+    """
+    return f"{owner}_{repo}-commits"
+
 def _headers() -> Dict[str, str]:
     h = {"Accept": "application/vnd.github+json", "User-Agent": "repo-qna-rag/1.0"}
     token = os.getenv("GITHUB_TOKEN")
@@ -20,7 +29,7 @@ def _headers() -> Dict[str, str]:
     return h
 
 def load_retriever(owner: str, repo: str, k: int = 6):
-    collection_name = f"{owner}/{repo}-commits"
+    collection_name = _collection_name(owner, repo)
     vs = Chroma(
         embedding_function=None,  # use stored embeddings
         persist_directory=PERSIST_DIR,
@@ -46,8 +55,13 @@ def _verify_commit(owner: str, repo: str, sha: str) -> Dict[str, Any]:
         }
 
 def rag_find_commits(owner: str, repo: str, query: str, k: int = 4) -> List[Dict[str, Any]]:
-    retriever = load_retriever(owner, repo, k=k)
-    docs = retriever.get_relevant_documents(query)
+    try:
+        retriever = load_retriever(owner, repo, k=k)
+        docs = retriever.get_relevant_documents(query)
+    except Exception:
+        # If Chroma is not set up or collection name is invalid/missing,
+        # fall back to no RAG results so the agent can try other tools.
+        return []
     out: List[Dict[str, Any]] = []
     for d in docs:
         sha = d.metadata.get("sha")
