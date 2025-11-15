@@ -1,10 +1,16 @@
 """
-Build a local semantic index of a GitHub repo's commit history for RAG.
+Server-side utility: build a local semantic index of a GitHub repo's commit
+history for RAG.
 
-- Fetches recent commits via GitHub REST (no git clone needed)
-- Creates LangChain Documents with rich metadata (sha, author, date, url)
-- Embeds with OpenAI (default) or a local HF model
-- Persists to Chroma at ./rag_store
+- Fetches recent commits via GitHub REST (no git clone needed).
+- Creates LangChain Documents with rich metadata (sha, author, date, url).
+- Embeds with OpenAI (default) or a local HF model.
+- Persists to a Chroma vector store under `rag_store/`.
+
+Dependencies / flow:
+- Reads `GITHUB_TOKEN` (for GitHub API), `OPENAI_API_KEY` / embedding env vars.
+- The resulting index is later read by `rag.py`, which is wrapped by
+  `agent.tools_rag` for optional semantic commit search.
 """
 import os
 import math
@@ -30,6 +36,14 @@ else:
 
 GITHUB_API = "https://api.github.com"
 PERSIST_DIR = os.getenv("RAG_PERSIST_DIR", "rag_store")
+
+def _collection_name(owner: str, repo: str) -> str:
+    """Return a Chroma-safe collection name for this repo.
+
+    Must match the naming scheme used in `rag.py` to ensure we open
+    the same collection.
+    """
+    return f"{owner}_{repo}-commits"
 
 def _headers() -> Dict[str, str]:
     h = {"Accept": "application/vnd.github+json", "User-Agent": "repo-qna-rag/1.0"}
@@ -98,7 +112,7 @@ def build_index(owner: str, repo: str, max_commits: int = 1000) -> None:
     if not rows:
         raise SystemExit("No commits fetched. Check repo or token.")
     docs = to_documents(owner, repo, rows)
-    collection_name = f"{owner}/{repo}-commits"
+    collection_name = _collection_name(owner, repo)
     vs = Chroma.from_documents(
         documents=docs,
         embedding=EMBEDDINGS,

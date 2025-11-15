@@ -1,6 +1,11 @@
 """
-FastAPI entrypoint: defines the API, health route, and chat endpoint.
-All agent logic and GitHub tools live in the `agent/` package to keep this file slim.
+Server-side entrypoint (FastAPI).
+
+- Exposes `/health` and `/chat` HTTP endpoints.
+- Reads environment (e.g. `GITHUB_TOKEN`, `AGENT_TZ`) and passes those values
+  into the PydanticAI agent as `Deps`.
+- Delegates all GitHub logic to the `agent/` package; this file stays thin and
+  only handles HTTP and request/response wiring.
 """
 import os
 from typing import Optional
