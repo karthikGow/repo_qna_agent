@@ -24,16 +24,16 @@ Always prints UTC + Europe/Berlin timestamps and citations (commit/workflow/PR U
   - `agent/__init__.py` – exports and imports tools (auto-register)
 - CLI client: `cli.py`
 - Optional RAG builder: `rag_index.py`, loader/validator `rag.py`
-- Runbook + demo: `RUN.md`, `demo.ps1`
+- Demo script: `demo.ps1`
 
 ### Data Flow (ASCII)
 
-CLI/HTTP -> FastAPI `/chat` -> PydanticAI `agent` -> Calls tool(s) -> GitHub API
-                                                          |        -> format answer
-                                                          v
+CLI/HTTP -> FastAPI `/chat` -> PydanticAI `agent` -> Calls tool(s) -> GitHub API  
+                                                          |        -> format answer  
+                                                          v  
                                                     Citations + Timestamps
 
-```
+```text
 cli.py  -->  app.py (/chat)  -->  agent/core.py
                                \->  agent/tools_*  --> GitHub REST
 RAG (opt): rag_index.py -> Chroma  -> rag.py -> tools_rag
@@ -101,8 +101,8 @@ python cli.py --repo owner/repo "When did we add @app.get('/health') in app.py?"
 ```
 
 ### Environment Setup Files
-- `.env`: already included (loaded automatically by the app via `python-dotenv`). It contains the keys you provided.
-- `env.ps1`: run in PowerShell to set session-local environment variables.
+- `.env`: auto-loaded by the app via `python-dotenv` (local only, do not commit).
+- `env.ps1`: helper script to set session-local environment variables on Windows.
 
 Usage (PowerShell):
 ```powershell
@@ -124,7 +124,6 @@ curl http://127.0.0.1:8000/health
 ```
 
 ### One-Page Run Guide and Demo
-- See `RUN.md` for a concise step-by-step runbook (two-terminal workflow, quoting tips, troubleshooting).
 - Run the sample script after starting the API:
   ```powershell
   .\demo.ps1  # queries your repo with 4 example questions
@@ -136,7 +135,7 @@ curl http://127.0.0.1:8000/health
 - `agent/` – agent logic and tools
 - `cli.py` – terminal client
 - `rag.py`, `rag_index.py` – optional RAG (commit index builder and retriever)
-- `RUN.md`, `README.md`, `demo.ps1` – docs and demo
+- `README.md`, `demo.ps1` – docs and demo
 - `.env.example` – template for environment variables (do not commit real keys)
 - `.gitignore` – ignores `.env`, `env.ps1`, caches, venv, rag_store
 
@@ -171,23 +170,14 @@ python cli.py --repo owner/repo --environment prod "When was the last deployment
 python cli.py --repo owner/repo "When did we fix the favicon bug?"
 python cli.py --repo owner/repo "When did we refactor the Homepage layout?"
 ```
-<<<<<<< HEAD
 
-=======
-Start API: uvicorn app:app --reload --port 8000
-Health: curl http://127.0.0.1:8000/health
-Last commit: python cli.py --repo karthikGow/repo_qna_agent "What was implemented in the last commit and by whom?"
-Last deployment (prod): python cli.py --repo karthikGow/repo_qna_agent --environment prod "When was the last deployment?"
-Favicon fix: python cli.py --repo karthikGow/repo_qna_agent "When did we fix the favicon bug?"
->>>>>>> experiment-from-v1.3.0
-Homepage refactor: python cli.py --repo karthikGow/repo_qna_agent "When did we refactor the Homepage layout?"
+Homepage refactor (example against your repo):
+```powershell
+python cli.py --repo karthikGow/repo_qna_agent "When did we refactor the Homepage layout?"
+```
+
 ### Git Identity (optional)
 ```powershell
 git config --global user.name "Your Name"
 git config --global user.email "<your-noreply-or-safe-email>"
-<<<<<<< HEAD
-- Minor cleanup to support homepage layout refactor demo.
-=======
 ```
->>>>>>> experiment-from-v1.3.0
-
