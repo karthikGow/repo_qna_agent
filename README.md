@@ -24,7 +24,7 @@ Always prints UTC + Europe/Berlin timestamps and citations (commit/workflow/PR U
   - `agent/__init__.py` – exports and imports tools (auto-register)
 - CLI client: `cli.py`
 - Optional RAG builder: `rag_index.py`, loader/validator `rag.py`
-- Demo script: `demo.ps1`
+
 
 ### Data Flow (ASCII)
 
